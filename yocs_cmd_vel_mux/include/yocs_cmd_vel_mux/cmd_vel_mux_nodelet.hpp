@@ -23,6 +23,10 @@
 
 #include "yocs_cmd_vel_mux/reloadConfig.h"
 #include "yocs_cmd_vel_mux/cmd_vel_subscribers.hpp"
+#include "yocs_msgs/ChangeMuxPriority.h"
+#include "yocs_msgs/ResetPendingMuxPriority.h"
+
+#include <map>
 
 /*****************************************************************************
 ** Namespaces
@@ -51,18 +55,31 @@ public:
       delete dynamic_reconfigure_server;
   }
 
+protected:
+  bool changeTopicPriorityServiceCb(yocs_msgs::ChangeMuxPriority::Request& req,
+                                    yocs_msgs::ChangeMuxPriority::Response& res);
+
+  bool resetPendingTopicPriorityServiceCb(yocs_msgs::ResetPendingMuxPriority::Request& req,
+                                          yocs_msgs::ResetPendingMuxPriority::Response& res);
+
 private:
   static const unsigned int VACANT       = 666666;  /**< ID for "nobody" active input; anything big is ok */
   static const unsigned int GLOBAL_TIMER = 888888;  /**< ID for the global timer functor; anything big is ok */
 
-  CmdVelSubscribers cmd_vel_subs;    /**< Pool of cmd_vel topics subscribers */
-  ros::Publisher output_topic_pub;   /**< Multiplexed command velocity topic */
-  std::string    output_topic_name;  /**< Multiplexed command velocity topic name */
-  ros::Publisher active_subscriber;  /**< Currently allowed cmd_vel subscriber */
-  ros::Timer common_timer;           /**< No messages from any subscriber timeout */
-  double common_timer_period;        /**< No messages from any subscriber timeout period */
+  CmdVelSubscribers cmd_vel_subs;              /**< Pool of cmd_vel topics subscribers */
+  ros::Publisher output_topic_pub;             /**< Multiplexed command velocity topic */
+  std::string    output_topic_name;            /**< Multiplexed command velocity topic name */
+  ros::Publisher active_subscriber;            /**< Currently allowed cmd_vel subscriber */
+  ros::ServiceServer change_priority_service;  /** < Service to change priority of a topic */
+  ros::ServiceServer reset_pending_topic_priority_service;  /** < Service to change priority of a topic */
+
+  std::map<uint8_t, ros::Timer> reset_priority_timer_map;
+  ros::Timer common_timer;                     /**< No messages from any subscriber timeout */
+  double common_timer_period;                  /**< No messages from any subscriber timeout period */
 
   void timerCallback(const ros::TimerEvent& event, unsigned int idx);
+  void timerCallback(const ros::TimerEvent& event, unsigned int idx, uint8_t priority);
+
   void cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg, unsigned int idx);
 
   /*********************
@@ -100,16 +117,27 @@ private:
   private:
     unsigned int idx;
     CmdVelMuxNodelet* node;
+    bool change_priority;
+    uint8_t priority;
 
   public:
-    TimerFunctor(unsigned int idx, CmdVelMuxNodelet* node) :
-        idx(idx), node(node)
+    TimerFunctor(unsigned int idx,
+                 CmdVelMuxNodelet* node,
+                 bool change_priority = false,
+                 uint8_t priority = 0) :
+        idx(idx),
+        node(node),
+        change_priority(change_priority),
+        priority(priority)
     {
     }
 
     void operator()(const ros::TimerEvent& event)
     {
-      node->timerCallback(event, idx);
+      if (!change_priority)
+        node->timerCallback(event, idx);
+      else
+        node->timerCallback(event, idx, priority);
     }
   };
 };
