@@ -16,6 +16,8 @@
 
 #include "yocs_cmd_vel_mux/cmd_vel_mux_nodelet.hpp"
 #include "yocs_cmd_vel_mux/exceptions.hpp"
+#include "yocs_msgs/ChangeMuxPriority.h"
+#include "yocs_msgs/ResetPendingMuxPriority.h"
 
 /*****************************************************************************
 ** Namespaces
@@ -26,6 +28,80 @@ namespace yocs_cmd_vel_mux {
 /*****************************************************************************
  ** Implementation
  *****************************************************************************/
+
+bool CmdVelMuxNodelet::changeTopicPriorityServiceCb(yocs_msgs::ChangeMuxPriority::Request& req,
+                                                    yocs_msgs::ChangeMuxPriority::Response& res)
+{
+  for (unsigned int i = 0; i < cmd_vel_subs.size(); i++)
+  {
+    if (cmd_vel_subs[i]->topic == req.topic)
+    {
+      // Check if a timer is already scheduled to reset the priority for the current topic
+      const bool timer_exists = (reset_priority_timer_map.find(i) != reset_priority_timer_map.end());
+
+      // If the priority change required isn't permanent, we need to start a timer to reset the priority
+      if (!req.permanent)
+      {
+        if (!timer_exists)
+          reset_priority_timer_map[i] = this->getPrivateNodeHandle().
+                                          createTimer(ros::Duration(req.timeout),
+                                                      TimerFunctor(i, this, true, cmd_vel_subs[i]->priority),
+                                                      true,
+                                                      true);
+      }
+      else
+      {
+        // The priority change is permanent
+        // Remove pending callbacks (if any) on a reset priority timer created for this topic
+        if (timer_exists)
+          reset_priority_timer_map.erase(i);
+      }
+
+      // Mark the topic as inactive due to its state change
+      // and change its priority to the required priority
+      cmd_vel_subs[i]->active = false;
+      cmd_vel_subs[i]->priority = req.priority;
+      return true;
+    }
+  }
+
+  // Topic whose priority change was required was not found
+  // Return a failed status for the service
+  return false;
+}
+
+bool CmdVelMuxNodelet::resetPendingTopicPriorityServiceCb(yocs_msgs::ResetPendingMuxPriority::Request& req,
+                                                          yocs_msgs::ResetPendingMuxPriority::Response& res)
+{
+  uint8_t vel_index;
+
+  // Find subscriber index of topic
+  bool topic_exists = false;
+  for (unsigned int i = 0; i < cmd_vel_subs.size(); i++)
+  {
+    if (cmd_vel_subs[i]->topic == req.topic)
+    {
+      vel_index = i;
+      topic_exists = true;
+      break;
+    }
+  }
+
+  // Topic is not an input to the multiplexer
+  // Return with a failed service status
+  if (!topic_exists)
+    return false;
+
+  // Check if a timer is scheduled to trigger a priority reset
+  const bool timer_exists = (reset_priority_timer_map.find(vel_index) != reset_priority_timer_map.end());
+
+  // If a timer to reset the priority exists and a callback is not already awaiting,
+  // trigger the callback as soon as possible by changing the period of the timer
+  if (timer_exists && !reset_priority_timer_map[vel_index].hasPending())
+    reset_priority_timer_map[vel_index].setPeriod(ros::Duration(0.0));
+
+  return true;
+}
 
 void CmdVelMuxNodelet::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg, unsigned int idx)
 {
@@ -57,6 +133,12 @@ void CmdVelMuxNodelet::cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg,
 
     output_topic_pub.publish(msg);
   }
+}
+
+void CmdVelMuxNodelet::timerCallback(const ros::TimerEvent& event, unsigned int idx, uint8_t priority)
+{
+  cmd_vel_subs[idx]->priority = priority;
+  reset_priority_timer_map.erase(idx);
 }
 
 void CmdVelMuxNodelet::timerCallback(const ros::TimerEvent& event, unsigned int idx)
@@ -97,6 +179,10 @@ void CmdVelMuxNodelet::onInit()
   dynamic_reconfigure_server->setCallback(dynamic_reconfigure_cb);
 
   active_subscriber = nh.advertise <std_msgs::String> ("active", 1, true); // latched topic
+  change_priority_service = nh.advertiseService("change_topic_priority", &CmdVelMuxNodelet::changeTopicPriorityServiceCb, this);
+  reset_pending_topic_priority_service = nh.advertiseService("reset_pending_topic_priority",
+                                                             &CmdVelMuxNodelet::resetPendingTopicPriorityServiceCb,
+                                                             this);
 
   // Notify the world that by now nobody is publishing on cmd_vel yet
   std_msgs::StringPtr active_msg(new std_msgs::String);

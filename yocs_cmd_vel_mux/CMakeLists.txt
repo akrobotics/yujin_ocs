@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(yocs_cmd_vel_mux)
-find_package(catkin REQUIRED COMPONENTS roscpp pluginlib nodelet dynamic_reconfigure geometry_msgs)
+find_package(catkin REQUIRED COMPONENTS roscpp pluginlib nodelet dynamic_reconfigure geometry_msgs yocs_msgs)
 
 # pkg-config support
 find_package(PkgConfig)
@@ -18,7 +18,7 @@ generate_dynamic_reconfigure_options(cfg/reload.cfg)
 catkin_package(
    INCLUDE_DIRS include
    LIBRARIES ${PROJECT_NAME}_nodelet
-   CATKIN_DEPENDS roscpp pluginlib nodelet dynamic_reconfigure geometry_msgs
+   CATKIN_DEPENDS roscpp pluginlib nodelet dynamic_reconfigure geometry_msgs yocs_msgs
    DEPENDS yaml-cpp
 )
 
