@@ -56,9 +56,26 @@ public:
   }
 
 protected:
+  /**
+   * \brief ROS Service Callback to change priority temporarily/permanently for an input velocity topic
+   *
+   * \param req: A reference to the request to the service
+   * \param idx: A reference to the response from the service (populated in the callback)
+   *
+   * \return true if the requested change was successful, false otherwise
+   */
   bool changeTopicPriorityServiceCb(yocs_msgs::ChangeMuxPriority::Request& req,
                                     yocs_msgs::ChangeMuxPriority::Response& res);
 
+  /**
+   * \brief ROS Service Callback to fast-forward the reset for a temporary priority change
+   *        of an input velocity topic
+   *
+   * \param req: A reference to the request to the service
+   * \param idx: A reference to the response from the service (populated in the callback)
+   *
+   * \return true if the requested topic is an input to the velocity multiplexer, false otherwise
+   */
   bool resetPendingTopicPriorityServiceCb(yocs_msgs::ResetPendingMuxPriority::Request& req,
                                           yocs_msgs::ResetPendingMuxPriority::Response& res);
 
@@ -77,9 +94,29 @@ private:
   ros::Timer common_timer;                     /**< No messages from any subscriber timeout */
   double common_timer_period;                  /**< No messages from any subscriber timeout period */
 
+  /**
+   * \brief A ros::Timer callback to perform inactivity checks on velocity multiplexer topics
+   *
+   * \param event: The ros::Timer event
+   * \param idx: The index of the timer/topic
+   */
   void timerCallback(const ros::TimerEvent& event, unsigned int idx);
+
+  /**
+   * \brief A ros::Timer callback to perform a input topic priority reset
+   *
+   * \param event: The ros::Timer event
+   * \param idx: The index of the timer/topic
+   * \param priority: The priority to set for the input topic
+   */
   void timerCallback(const ros::TimerEvent& event, unsigned int idx, uint8_t priority);
 
+  /**
+   * \brief Velocity callbacks for input topics to the velocity multiplexer
+   *
+   * \param msg: The geometry_msgs::Twist message on an input topic
+   * \param idx: The index of the input topic maintained by the velocity multiplexer
+   */
   void cmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg, unsigned int idx);
 
   /*********************
@@ -87,6 +124,14 @@ private:
   **********************/
   dynamic_reconfigure::Server<yocs_cmd_vel_mux::reloadConfig> * dynamic_reconfigure_server;
   dynamic_reconfigure::Server<yocs_cmd_vel_mux::reloadConfig>::CallbackType dynamic_reconfigure_cb;
+
+  /**
+   * \brief Dynamic Reconfigure callback to change Velocity Multiplexer configurations during runtime
+   *
+   * \param config: A reference to the new configuration that is requested
+   * \param unused_level: A bitmask containing ORed values of the bits of all parameter classes that
+   *                      have been changed
+   */
   void reloadConfiguration(yocs_cmd_vel_mux::reloadConfig &config, uint32_t unused_level);
 
   /*********************
